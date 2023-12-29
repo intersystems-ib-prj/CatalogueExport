@@ -24,14 +24,11 @@ CatalogueExport is actively being developed for CDM v5.x only.
     ```r
     if (!require("devtools")) install.packages("devtools")
     
-    # To install the master branch
-    devtools::install_github("EHDEN/CatalogueExport")
+    # As CatalogueExport for IRIS needs a iris-compatible SQLRender, install the InterSystems fork with:
+    devtools::install_github("intersystems-ib/SqlRender")
     
-    # To install latest release (if master branch contains a bug for you)
-    # devtools::install_github("EHDEN/CatalogueExport@*release")  
-    
-    # To avoid Java 32 vs 64 issues 
-    # devtools::install_github("EHDEN/CatalogueExport", args="--no-multiarch")  
+    # To install the master branch (iris-compatible Catalogue Export)
+    devtools::install_github("intersystems-ib-prj/CatalogueExport")
     ```
 
 4. To run the CatalogueExport analyses, first determine if you'd like to run the function in multi-threaded mode or in single-threaded mode. 

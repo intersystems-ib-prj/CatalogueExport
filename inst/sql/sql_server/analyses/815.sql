@@ -1,80 +1,114 @@
+--HINT DISTRIBUTE_ON_KEY(stratum1_id)
+CREATE GLOBAL TEMPORARY TABLE temp.overallStats_815(stratum1_id INT,stratum2_id INT,avg_value NUMERIC,stdev_value NUMERIC,min_value NUMERIC,max_value NUMERIC,total NUMERIC);
+INSERT INTO temp.overallStats_815(stratum1_id,stratum2_id,avg_value,stdev_value,min_value,max_value,total)
+SELECT
+    o.subject_id AS stratum1_id,
+    o.unit_concept_id AS stratum2_id,
+    CAST(AVG(1.0 * o.count_value) AS NUMERIC) AS avg_value,
+    CAST(STDDEV(count_value) AS NUMERIC) AS stdev_value,
+    MIN(o.count_value) AS min_value,
+    MAX(o.count_value) AS max_value,
+    COUNT(*) AS total
+FROM
+    (
+SELECT
+            o.observation_concept_id AS subject_id,
+            o.unit_concept_id,
+            CAST(o.value_as_number AS NUMERIC) AS count_value
+FROM
+            @cdmDatabaseSchema.observation o
+                JOIN
+            @cdmDatabaseSchema.observation_period op
+            ON
+                        o.person_id = op.person_id
+                    AND
+                        o.observation_date >= op.observation_period_start_date
+                    AND
+                        o.observation_date <= op.observation_period_end_date
+        WHERE
+            o.unit_concept_id IS NOT NULL
+          AND
+            o.value_as_number IS NOT NULL
+    ) o
+GROUP BY
+    o.subject_id,
+    o.unit_concept_id;
 
 --HINT DISTRIBUTE_ON_KEY(stratum1_id)
-select subject_id as stratum1_id,
-  unit_concept_id as stratum2_id,
-  CAST(avg(1.0 * count_value) AS FLOAT) as avg_value,
-  CAST(stdev(count_value) AS FLOAT) as stdev_value,
-  min(count_value) as min_value,
-  max(count_value) as max_value,
-  count_big(*) as total
-  into #overallStats_815
-  FROM 
-  (
-    select observation_concept_id as subject_id, 
-  	unit_concept_id,
-  	CAST(value_as_number AS FLOAT) as count_value
-    from @cdmDatabaseSchema.observation o1
-    where o1.unit_concept_id is not null
-  	  and o1.value_as_number is not null
-  ) A
-	group by subject_id, unit_concept_id
-;
+CREATE GLOBAL TEMPORARY TABLE temp.statsView_815(stratum1_id INT,stratum2_id INT,count_value NUMERIC,total NUMERIC,subject_id INT,rn NUMERIC);
+INSERT INTO temp.statsView_815(stratum1_id,stratum2_id,count_value,total,subject_id,rn)
+SELECT
+    o.subject_id AS stratum1_id,
+    o.unit_concept_id AS stratum2_id,
+    o.count_value,
+    COUNT(*) AS total,
+    ROW_NUMBER() OVER (PARTITION BY o.subject_id,o.unit_concept_id ORDER BY o.count_value) AS rn
+FROM
+    (
+SELECT
+            o.observation_concept_id AS subject_id,
+            o.unit_concept_id,
+            CAST(o.value_as_number AS NUMERIC) AS count_value
+FROM
+            @cdmDatabaseSchema.observation o
+                JOIN
+            @cdmDatabaseSchema.observation_period op
+            ON
+                        o.person_id = op.person_id
+                    AND
+                        o.observation_date >= op.observation_period_start_date
+                    AND
+                        o.observation_date <= op.observation_period_end_date
+        WHERE
+            o.unit_concept_id IS NOT NULL
+          AND
+            o.value_as_number IS NOT NULL
+    ) o
+GROUP BY
+    o.subject_id,
+    o.unit_concept_id,
+    o.count_value;
 
 --HINT DISTRIBUTE_ON_KEY(stratum1_id)
-select subject_id as stratum1_id, unit_concept_id as stratum2_id, count_value, count_big(*) as total, row_number() over (partition by subject_id, unit_concept_id order by count_value) as rn
-into #statsView_815
-FROM 
-(
-  select observation_concept_id as subject_id, 
-	unit_concept_id,
-	CAST(value_as_number AS FLOAT) as count_value
-  from @cdmDatabaseSchema.observation o1
-  where o1.unit_concept_id is not null
-	  and o1.value_as_number is not null
-) A
-group by subject_id, unit_concept_id, count_value
-;
-
---HINT DISTRIBUTE_ON_KEY(stratum1_id)
-with priorStats (stratum1_id, stratum2_id, count_value, total, accumulated) as
-(
-  select s.stratum1_id, s.stratum2_id, s.count_value, s.total, sum(p.total) as accumulated
-  from #statsView_815 s
-  join #statsView_815 p on s.stratum1_id = p.stratum1_id and s.stratum2_id = p.stratum2_id and p.rn <= s.rn
-  group by s.stratum1_id, s.stratum2_id, s.count_value, s.total, s.rn
-)
-select 815 as analysis_id,
-  CAST(o.stratum1_id AS VARCHAR(255)) AS stratum1_id,
-  CAST(o.stratum2_id AS VARCHAR(255)) AS stratum2_id,
-  floor((count_big(o.total)+99)/100)*100 as count_value,
-  o.min_value,
-	o.max_value,
-	o.avg_value,
-	o.stdev_value,
-	MIN(case when p.accumulated >= .50 * o.total then count_value else o.max_value end) as median_value,
-	MIN(case when p.accumulated >= .10 * o.total then count_value else o.max_value end) as p10_value,
-	MIN(case when p.accumulated >= .25 * o.total then count_value else o.max_value end) as p25_value,
-	MIN(case when p.accumulated >= .75 * o.total then count_value else o.max_value end) as p75_value,
-	MIN(case when p.accumulated >= .90 * o.total then count_value else o.max_value end) as p90_value
-into #tempResults_815
-from priorStats p
-join #overallStats_815 o on p.stratum1_id = o.stratum1_id and p.stratum2_id = o.stratum2_id 
+CREATE GLOBAL TEMPORARY TABLE temp.tempResults_815(analysis_id INT,stratum1_id INT,stratum2_id INT,count_value NUMERIC,min_value NUMERIC,max_value NUMERIC,avg_value NUMERIC,stdev_value NUMERIC,median_value NUMERIC,p10_value NUMERIC,p25_value NUMERIC,p75_value NUMERIC,p90_value NUMERIC);
+INSERT INTO temp.tempResults_815(analysis_id,stratum1_id,stratum2_id,count_value,min_value,max_value,avg_value,stdev_value,median_value,p10_value,p25_value,p75_value,p90_value)
+SELECT
+    815 as analysis_id,
+    CAST(o.stratum1_id AS VARCHAR(255)) AS stratum1_id,
+    CAST(o.stratum2_id AS VARCHAR(255)) AS stratum2_id,
+    o.total as count_value,
+    o.min_value,
+    o.max_value,
+    o.avg_value,
+    o.stdev_value,
+    MIN(case when p.accumulated >= .50 * o.total then count_value else o.max_value end) as median_value,
+    MIN(case when p.accumulated >= .10 * o.total then count_value else o.max_value end) as p10_value,
+    MIN(case when p.accumulated >= .25 * o.total then count_value else o.max_value end) as p25_value,
+    MIN(case when p.accumulated >= .75 * o.total then count_value else o.max_value end) as p75_value,
+    MIN(case when p.accumulated >= .90 * o.total then count_value else o.max_value end) as p90_value
+FROM
+    (
+select
+s.stratum1_id, s.stratum2_id, s.count_value, s.total, sum(p.total) as accumulated
+from temp.statsView_815 s
+                 join temp.statsView_815 p on s.stratum1_id = p.stratum1_id and s.stratum2_id = p.stratum2_id and p.rn <= s.rn
+        group by s.stratum1_id, s.stratum2_id, s.count_value, s.total, s.rn
+    ) p
+        join temp.overallStats_815 o on p.stratum1_id = o.stratum1_id and p.stratum2_id = o.stratum2_id
 GROUP BY o.stratum1_id, o.stratum2_id, o.total, o.min_value, o.max_value, o.avg_value, o.stdev_value
 ;
 
---HINT DISTRIBUTE_ON_KEY(stratum_1)
 select analysis_id, stratum1_id as stratum_1, stratum2_id as stratum_2, 
 cast(null as varchar(255)) as stratum_3, cast(null as varchar(255)) as stratum_4, cast(null as varchar(255)) as stratum_5,
 count_value, min_value, max_value, avg_value, stdev_value, median_value, p10_value, p25_value, p75_value, p90_value
 into @scratchDatabaseSchema@schemaDelim@tempAchillesPrefix_dist_815
-from #tempResults_815
+from temp.tempResults_815
 ;
 
-truncate table #overallStats_815;
-drop table #overallStats_815;
 
-truncate table #statsView_815;
-drop table #statsView_815;
-
-truncate table #tempResults_815;
-drop table #tempResults_815;
+truncate table temp.overallStats_815;
+drop table temp.overallStats_815;
+truncate table temp.statsView_815;
+drop table temp.statsView_815;
+truncate table temp.tempResults_815;
+drop table temp.tempResults_815;
